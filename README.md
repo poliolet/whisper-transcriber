@@ -4,6 +4,26 @@ Transcribe audio and video on your Apple Silicon Mac. Choose the language and,
 optionally, label different speakers. Includes a progress window, drag and drop,
 and a Finder right-click action.
 
+## Features
+
+- **Local transcription:** convert audio and video to text with Whisper;
+  recordings stay on your Mac.
+- **17 languages:** including English, Spanish, Catalan, French and German.
+- **Optional speaker labels:** separate speakers with Pyannote, using labels
+  such as `SPEAKER_00`.
+- **Finder integration:** transcribe from the right-click menu, open the app,
+  or drag a file onto its icon.
+- **Native progress window:** see the current step, elapsed time and progress
+  when available. Processing continues if you close the window.
+- **Apple Silicon acceleration:** MLX for transcription and Metal for speaker
+  identification, with CPU fallback for speaker processing.
+- **Simple text output:** save a `.txt` to Downloads and open it from the
+  completion window. If speaker identification fails, keep a plain transcript.
+- **Private setup:** hidden token entry, restricted log permissions and optional
+  library telemetry disabled.
+- **Agent installation guide:** let a coding agent follow `AGENTS.md` to install
+  and verify the app.
+
 ## 1. Install
 
 You need **Apple Silicon, macOS 26 or newer**, [Homebrew](https://brew.sh),
