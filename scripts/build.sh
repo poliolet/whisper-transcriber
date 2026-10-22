@@ -12,6 +12,9 @@ trap 'rm -rf "$APP_BUILD_DIR"' EXIT
 xcrun swiftc -O -target arm64-apple-macosx13.0 \
     "$PROJECT_DIR/app/Progress.swift" -o "$APP_BUILD_DIR/whisper-progress"
 osacompile -l AppleScript -o "$APP_BUILD_DIR/Whisper Transcriber.app" "$PROJECT_DIR/app/main.applescript"
+# Give Launch Services a stable identity instead of an anonymous applet.
+/usr/bin/plutil -insert CFBundleIdentifier -string "dev.poliolet.whisper-transcriber" \
+    "$APP_BUILD_DIR/Whisper Transcriber.app/Contents/Info.plist"
 printf '%s\n' "$PROJECT_DIR" > "$APP_BUILD_DIR/Whisper Transcriber.app/Contents/Resources/project-path.txt"
 /usr/bin/xattr -cr "$APP_BUILD_DIR/Whisper Transcriber.app"
 /usr/bin/codesign --force --sign - "$APP_BUILD_DIR/Whisper Transcriber.app"
