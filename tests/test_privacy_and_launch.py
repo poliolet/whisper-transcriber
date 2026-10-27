@@ -3,6 +3,8 @@ import importlib.util
 import io
 import json
 import os
+import signal
+import time
 from pathlib import Path
 import subprocess
 import sys
@@ -60,35 +62,63 @@ class PrivacyTests(unittest.TestCase):
             self.assertEqual(token_file.read_text().strip(), "hf_fake_test")
             self.assertNotIn("hf_fake_test", output.getvalue())
 
-    def test_detached_worker_has_private_log_and_telemetry_disabled(self):
-        real_popen = subprocess.Popen
-        workers = []
-
-        def start(*args, **kwargs):
-            process = real_popen(*args, **kwargs)
-            workers.append(process)
-            return process
-
+    def test_macos_worker_survives_launcher_process_group_termination(self):
         with tempfile.TemporaryDirectory(prefix="whisper user's ") as directory:
             root = Path(directory)
             (root / "transcribe.py").write_text(
-                'import json, os, sys\n'
+                'import json, os, sys, time\n'
+                'time.sleep(2)\n'
                 'print(json.dumps({"args":sys.argv[1:], "metrics":os.environ["PYANNOTE_METRICS_ENABLED"], '
-                '"hf":os.environ["HF_HUB_DISABLE_TELEMETRY"], "detached":os.getsid(0)==os.getpid()}))\n'
+                '"hf":os.environ["HF_HUB_DISABLE_TELEMETRY"], "parent":os.getppid(), '
+                '"path":os.environ["PATH"]}), flush=True)\n'
             )
-            with patch.object(Path, "home", return_value=root), \
-                 patch.object(launch, "__file__", str(root / "launch.py")), \
-                 patch.object(launch.subprocess, "Popen", side_effect=start):
-                args = ['audio "example".mp4', "Catalan", "yes"]
-                first = launch.launch(args)
-                second = launch.launch(args)
-                for worker in workers:
-                    self.assertEqual(worker.wait(timeout=10), 0)
-            self.assertNotEqual(first, second)
-            self.assertEqual(first.stat().st_mode & 0o777, 0o600)
-            self.assertEqual(first.parent.stat().st_mode & 0o777, 0o700)
-            self.assertEqual(json.loads(first.read_text()),
-                             {"args": args, "metrics": "0", "hf": "1", "detached": True})
+            launcher = root / "parent.py"
+            launcher.write_text(
+                'import sys, time\nfrom pathlib import Path\nfrom unittest.mock import patch\n'
+                f'sys.path.insert(0, {str(Path(launch.__file__).parent)!r})\nimport launch\n'
+                f'launch.__file__ = {str(root / "launch.py")!r}\n'
+                f'with patch.object(Path, "home", return_value=Path({directory!r})):\n'
+                '    print(launch.launch(sys.argv[1:]), flush=True)\n'
+                'time.sleep(60)\n'
+            )
+            args = ['audio "example".mp4', "Catalan", "yes"]
+            parent = subprocess.Popen([sys.executable, str(launcher), *args],
+                                      stdout=subprocess.PIPE, text=True, start_new_session=True)
+            log = None
+            try:
+                log = Path(parent.stdout.readline().strip())
+                self.assertTrue(log.is_file())
+                os.killpg(parent.pid, signal.SIGKILL)
+                parent.wait(timeout=10)
+                deadline = time.monotonic() + 30
+                while not log.read_text().strip() and time.monotonic() < deadline:
+                    time.sleep(0.1)
+                result = json.loads(log.read_text())
+                self.assertEqual(result["args"], args)
+                self.assertEqual(result["parent"], 1)
+                self.assertEqual(result["metrics"], "0")
+                self.assertEqual(result["hf"], "1")
+                self.assertTrue(result["path"].startswith("/opt/homebrew/bin:"))
+                self.assertEqual(log.stat().st_mode & 0o777, 0o600)
+                self.assertEqual(log.parent.stat().st_mode & 0o777, 0o700)
+                self.assertEqual(list(log.parent.glob("*.plist")), [])
+            finally:
+                if parent.poll() is None:
+                    os.killpg(parent.pid, signal.SIGKILL)
+                    parent.wait(timeout=10)
+                parent.stdout.close()
+                if log is not None:
+                    label = "dev.poliolet.whisper-transcriber.job." + log.stem
+                    subprocess.run(["/bin/launchctl", "bootout", f"gui/{os.getuid()}/{label}"],
+                                   capture_output=True)
+
+    def test_macos_launch_failure_cleans_private_files(self):
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(Path, "home", return_value=Path(directory)), \
+             patch.object(launch.subprocess, "run", return_value=Mock(returncode=1, stderr="Failed")):
+            with self.assertRaisesRegex(RuntimeError, "macOS could not start"):
+                launch.launch(["example.wav", "English", "no"])
+            self.assertEqual(list((Path(directory) / "Library/Logs/Whisper Transcriber").iterdir()), [])
 
     def test_speaker_failure_saves_private_plain_transcript_and_redacts_token(self):
         with tempfile.TemporaryDirectory() as directory:

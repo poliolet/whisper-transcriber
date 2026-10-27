@@ -87,7 +87,10 @@ The `.txt` file appears in **Downloads**, using the input file's name.
 as `SPEAKER_00` distinguish voices; they do not identify people by name.
 
 The first run downloads models and takes longer. Closing the progress window
-leaves the job running. Percentages describe the current step. If speaker
+leaves the job running. macOS manages each transcription independently: you can
+close Codex or Terminal, and open the app again later from Finder.
+Keep your Mac awake and your macOS user logged in until it finishes.
+Percentages describe the current step. If speaker
 identification fails, the app saves plain text and shows a warning.
 Always check the transcript for recognition errors.
 

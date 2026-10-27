@@ -64,8 +64,8 @@ on configureAndStart(theFile)
 	set diarFlag to "no"
 	if diarBtn is "Yes" then set diarFlag to "yes"
 
-	-- The launcher returns immediately and creates a detached worker with a
-	-- private log. Shell configuration is read as data by transcribe.py.
+	-- The launcher hands the job to macOS and returns immediately, so closing
+	-- Codex or Terminal cannot stop it. transcribe.py reads saved token settings.
 	set launchCommand to shellPath & quoted form of runtimePath & " " & quoted form of launcherPath & " " & quoted form of audioPath & " " & quoted form of langName & " " & quoted form of diarFlag
 	«event sysoexec» launchCommand
 end configureAndStart

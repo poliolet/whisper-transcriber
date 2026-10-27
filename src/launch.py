@@ -1,6 +1,7 @@
-"""Detach the worker with a private, unique log for each job."""
+"""Give each transcription to the macOS session manager, independently of callers."""
 import os
 from pathlib import Path
+import plistlib
 import subprocess
 import sys
 import tempfile
@@ -13,17 +14,45 @@ def launch(arguments: list[str]) -> Path:
         raise RuntimeError("The Whisper log directory must not be a symbolic link.")
     log_dir.chmod(0o700)
     fd, name = tempfile.mkstemp(prefix="transcription-", suffix=".log", dir=log_dir)
-    env = dict(os.environ, PYANNOTE_METRICS_ENABLED="0", HF_HUB_DISABLE_TELEMETRY="1")
+    os.close(fd)
+    # No shell or inherited Codex environment. Tokens remain in the existing
+    # private configuration, read by transcribe.py, never in this job definition.
+    job = {
+        "Label": "dev.poliolet.whisper-transcriber.job." + Path(name).stem,
+        "ProgramArguments": [sys.executable, "-u", str(Path(__file__).resolve().with_name("transcribe.py")), *arguments],
+        "WorkingDirectory": str(Path.home()),
+        "EnvironmentVariables": {
+            "HOME": str(Path.home()),
+            "PATH": "/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+            "PYANNOTE_METRICS_ENABLED": "0",
+            "HF_HUB_DISABLE_TELEMETRY": "1",
+        },
+        "StandardOutPath": name,
+        "StandardErrorPath": name,
+        "RunAtLoad": True,
+        "LaunchOnlyOnce": True,
+        "KeepAlive": False,
+        # The completion window must survive the worker finishing.
+        "AbandonProcessGroup": True,
+        "Umask": 0o077,
+    }
+    job_fd, job_name = tempfile.mkstemp(prefix="job-", suffix=".plist", dir=log_dir)
     try:
-        with os.fdopen(fd, "wb") as log:
-            subprocess.Popen(
-                [sys.executable, "-u", str(Path(__file__).with_name("transcribe.py")), *arguments],
-                stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
-                start_new_session=True, env=env,
-            )
+        with os.fdopen(job_fd, "wb") as stream:
+            plistlib.dump(job, stream)
+        result = subprocess.run(
+            ["/bin/launchctl", "bootstrap", f"gui/{os.getuid()}", job_name],
+            stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode:
+            raise RuntimeError("macOS could not start the transcription: " + result.stderr.strip())
     except Exception:
         Path(name).unlink(missing_ok=True)
         raise
+    finally:
+        # launchd has read the definition. Do not register anything at login
+        # or leave media paths in persistent agent files.
+        Path(job_name).unlink(missing_ok=True)
     return Path(name)
 
 

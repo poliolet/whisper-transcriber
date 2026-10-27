@@ -64,6 +64,7 @@ if [ -d "$WORKFLOW_TARGET" ]; then /bin/mv "$WORKFLOW_TARGET" "$WORKFLOW_STAGE/p
 /bin/mv "$NEW_WORKFLOW" "$WORKFLOW_TARGET"
 WORKFLOW_SWAPPED=1
 /usr/bin/codesign --verify --deep --strict "$APP_PATH"
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP_PATH"
 /usr/bin/touch "$WORKFLOW_TARGET"
 if [ -x /System/Library/CoreServices/pbs ]; then
     /System/Library/CoreServices/pbs -flush >/dev/null 2>&1 || true
